@@ -1,0 +1,10 @@
+build/
+*-install/
+*.o
+*.so
+*.a
+*.root
+*.ps
+*.eps
+*.log
+.DS_Store
