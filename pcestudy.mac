@@ -1,0 +1,24 @@
+/run/initialize
+/tracking/verbose 0
+/run/printProgress 1000
+
+# Generate 1 phonon per event. Place uniformly throughout the Si chip
+/gps/number 1
+/gps/particle phononL
+
+/g4cmp/phononBounces 1000000000
+
+# Volume source: Para matching the Si crystal (10 mm × 3.33333 mm × 0.2 mm)
+/gps/pos/type Volume
+/gps/pos/shape Para
+/random/setSeeds 1
+/gps/ang/type iso
+/gps/pos/centre 0.0 0.0 0.0 cm
+/gps/pos/halfx 0.5 cm        # 半长 X = 5 mm
+/gps/pos/halfy 0.1666665 cm  # 半宽 Y ≈ 1.666665 mm
+/gps/pos/halfz 0.03375 cm       # 半厚 Z = 337.5 um 
+
+# Select energies
+/gps/ene/type Mono
+/gps/energy 0.005 eV
+/run/beamOn 20000
