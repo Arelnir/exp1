@@ -11,7 +11,7 @@
 # Volume source: Para matching the Si crystal (10 mm × 3.33333 mm × 0.2 mm)
 /gps/pos/type Volume
 /gps/pos/shape Para
-/random/setSeeds 1
+/random/setSeeds 1 2
 /gps/ang/type iso
 /gps/pos/centre 0.0 0.0 0.0 cm
 /gps/pos/halfx 0.5 cm        # 半长 X = 5 mm
@@ -20,5 +20,5 @@
 
 # Select energies
 /gps/ene/type Mono
-/gps/energy 0.005 eV
-/run/beamOn 20000
+/gps/energy 0.0005 eV
+/run/beamOn 200000

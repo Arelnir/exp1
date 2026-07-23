@@ -15,11 +15,20 @@
 #include "G4SDManager.hh"
 #include "G4SystemOfUnits.hh"
 #include "PhononConfigManager.hh"
+#include "G4CMPUtils.hh"
 #include <fstream>
+#include <iostream>
 
 PhononSensitivity::PhononSensitivity(G4String name) :
-  G4CMPElectrodeSensitivity(name), fileName("") {
+  G4CMPElectrodeSensitivity(name), fileName(""), lowEFileName("lowE_phonons.txt") {
   SetOutputFile(PhononConfigManager::GetHitOutput());
+  // 打开低能声子文件（追加模式）
+  lowEOutput.open(lowEFileName, std::ios_base::app);
+  if (lowEOutput.good()) {
+    lowEOutput << "Run ID,Event ID,Track ID,Start Energy [eV]" << std::endl;
+  } else {
+    G4cerr << "Warning: Could not open lowE_phonons.txt for writing." << G4endl;
+  }
 }
 
 PhononSensitivity::~PhononSensitivity() {
@@ -28,6 +37,34 @@ PhononSensitivity::~PhononSensitivity() {
     G4cerr << "Error closing output file, " << fileName << ".\n"
            << "Expect bad things like loss of data.";
   }
+  if (lowEOutput.is_open()) lowEOutput.close();
+}
+
+G4bool PhononSensitivity::ProcessHits(G4Step* step, G4TouchableHistory* history) {
+  G4Track* track = step->GetTrack();
+  const G4ParticleDefinition* particle = track->GetDefinition();
+
+  // 仅对声子检查能量
+  if (G4CMP::IsPhonon(particle)) {
+    G4double energy = track->GetKineticEnergy();
+    if (energy < lowEThreshold) {
+      // 记录低能声子信息
+      if (lowEOutput.is_open() && lowEOutput.good()) {
+        G4RunManager* runMan = G4RunManager::GetRunManager();
+        lowEOutput << runMan->GetCurrentRun()->GetRunID() << ','
+                   << runMan->GetCurrentEvent()->GetEventID() << ','
+                   << track->GetTrackID() << ','
+                   << energy / CLHEP::eV << std::endl;
+      }
+      // 杀死声子，不沉积能量（也可将能量设为沉积，视需求而定）
+      track->SetTrackStatus(fStopAndKill);
+      // 避免生成电极击中
+      return false;
+    }
+  }
+
+  // 正常处理：调用基类（内部会调用 IsHit 并填充电极击中）
+  return G4CMPElectrodeSensitivity::ProcessHits(step, history);
 }
 
 void PhononSensitivity::EndOfEvent(G4HCofThisEvent* HCE) {
@@ -38,37 +75,34 @@ void PhononSensitivity::EndOfEvent(G4HCofThisEvent* HCE) {
   G4RunManager* runMan = G4RunManager::GetRunManager();
 
   // 有效 Resonator 区域 (单位：mm)
-  const double xLeftMin  = -3.775, xLeftMax  = -3.325;   // 左 Resonator
-  const double xRightMin =  3.325, xRightMax =  3.775;   // 右 Resonator
-  const double yMin = -0.52, yMax = 0.077665;        // Y 范围（IDC下边到半圆下端）
+  const double xLeftMin  = -3.775, xLeftMax  = -3.325;
+  const double xRightMin =  3.325, xRightMax =  3.775;
+  const double yMin = -0.52, yMax = 0.077665;
 
   if (output.good()) {
     for (G4CMPElectrodeHit* hit : *hitVec) {
-      double x = hit->GetFinalPosition().x();   // 单位 mm
+      double x = hit->GetFinalPosition().x();   // mm
       double y = hit->GetFinalPosition().y();
 
       bool inLeft  = (x >= xLeftMin  && x <= xLeftMax  && y >= yMin && y <= yMax);
       bool inRight = (x >= xRightMin && x <= xRightMax && y >= yMin && y <= yMax);
-      // ==================== 临时：验证能量守恒（关闭坐标过滤） ====================
-      // 验证时注释掉下面 if 语句，让所有电极击中都被记录。
-      // if (!inLeft && !inRight) continue; //跳过无效电极
-      // ==================== 临时结束 ====================
+      if (!inLeft && !inRight) continue;
 
       output << runMan->GetCurrentRun()->GetRunID() << ','
              << runMan->GetCurrentEvent()->GetEventID() << ','
              << hit->GetTrackID() << ','
              << hit->GetParticleName() << ','
-             << hit->GetStartEnergy()/eV << ','
-             << hit->GetStartPosition().getX()/m << ','
-             << hit->GetStartPosition().getY()/m << ','
-             << hit->GetStartPosition().getZ()/m << ','
-             << hit->GetStartTime()/ns << ','
-             << hit->GetEnergyDeposit()/eV << ','   // FillHit 已正确填充
+             << hit->GetStartEnergy()/CLHEP::eV << ','
+             << hit->GetStartPosition().getX()/CLHEP::m << ','
+             << hit->GetStartPosition().getY()/CLHEP::m << ','
+             << hit->GetStartPosition().getZ()/CLHEP::m << ','
+             << hit->GetStartTime()/CLHEP::ns << ','
+             << hit->GetEnergyDeposit()/CLHEP::eV << ','
              << hit->GetWeight() << ','
-             << hit->GetFinalPosition().getX()/m << ','
-             << hit->GetFinalPosition().getY()/m << ','
-             << hit->GetFinalPosition().getZ()/m << ','
-             << hit->GetFinalTime()/ns << '\n';
+             << hit->GetFinalPosition().getX()/CLHEP::m << ','
+             << hit->GetFinalPosition().getY()/CLHEP::m << ','
+             << hit->GetFinalPosition().getZ()/CLHEP::m << ','
+             << hit->GetFinalTime()/CLHEP::ns << '\n';
     }
   }
 }
@@ -95,10 +129,6 @@ void PhononSensitivity::SetOutputFile(const G4String &fn) {
 
 G4bool PhononSensitivity::IsHit(const G4Step* step,
                                 const G4TouchableHistory*) const {
-  /* Phonons tracks are sometimes killed at the boundary in order to spawn new
-   * phonon tracks. These tracks that are killed deposit no energy and should
-   * not be picked up as hits.
-   */
   const G4Track* track = step->GetTrack();
   const G4StepPoint* postStepPoint = step->GetPostStepPoint();
   const G4ParticleDefinition* particle = track->GetDefinition();
